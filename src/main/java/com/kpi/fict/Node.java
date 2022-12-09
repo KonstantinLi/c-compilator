@@ -31,10 +31,6 @@ public class Node {
         return children.stream().filter(Objects::nonNull).toList();
     }
 
-    public void setValue(String value) {
-        this.value = value;
-    }
-
     public void setType(Token type) {
         this.type = type;
     }

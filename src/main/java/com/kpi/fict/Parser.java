@@ -401,19 +401,6 @@ public class Parser {
         return root;
     }
 
-    public static void printStructure(Node root) {
-        printNode(root, 0);
-    }
-
-    private static void printNode(Node node, int level) {
-        System.out.println("\t".repeat(level) + node);
-        for (Node child : node.getChildren()) {
-            if (child != null) {
-                printNode(child, level + 1);
-            }
-        }
-    }
-
     private void nextToken() {
         lexer.nextToken();
         token = lexer.token;
@@ -428,6 +415,15 @@ public class Parser {
 
         List<Node> children = node.getChildren();
         children.forEach(child -> this.setCharacter(child, character));
+    }
+
+    public static void printStructure(Node root) {
+        printStructure(root, 0);
+    }
+
+    private static void printStructure(Node node, int level) {
+        System.out.println("\t".repeat(level) + node);
+        node.getChildren().forEach(child -> printStructure(child, level + 1));
     }
 }
 

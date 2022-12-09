@@ -8,6 +8,8 @@ import java.nio.file.Paths;
 
 public class Main {
 
+    private final static String INPUT_PATH = "src/main/resources/program.c";
+
     public static void main(String[] args) {
 
         if (args.length != 2) {
@@ -38,20 +40,19 @@ public class Main {
         parser.parse("Upper-lower case");
 
         Node root = parser.getRoot();
-        parser.setCharacter(root, character);
+        parser.setCharacter(root, 'q');
 
         Compiler compiler = new Compiler(root);
         compiler.compile();
         String result = compiler.getProgram();
 
-        File file = new File("result.asm");
+        File file = new File("output.asm");
 
         try {
             file.createNewFile();
 
             PrintWriter writer = new PrintWriter(file);
             writer.write(result);
-            System.out.println("success!");
 
             writer.flush();
             writer.close();

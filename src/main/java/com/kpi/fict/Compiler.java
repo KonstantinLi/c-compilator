@@ -24,7 +24,7 @@ public class Compiler {
         EAX, EBX, ECX, EDX, EBP, ESP, EDI, ESI
     }
 
-    private class Procedure {
+    private static class Procedure {
         final Node node;
         final String name;
         final List<String> params;
@@ -45,7 +45,7 @@ public class Compiler {
         }
     }
 
-    private class Condition {
+    private static class Condition {
         final Command command;
         final String operand1, operand2;
         final List<String> directives = new ArrayList<>();
@@ -57,7 +57,7 @@ public class Compiler {
         }
     }
 
-    private class Variable {
+    private static class Variable {
         Data type;
         final String name;
 
@@ -84,7 +84,7 @@ public class Compiler {
         }
     }
 
-    private class Constant {
+    private static class Constant {
         final Data type;
         final String name;
         final String value;
@@ -139,56 +139,35 @@ public class Compiler {
     }
 
     private void compile(Node node) {
-        if (node.type == Token.PROGRAM) {
-            List<Node> children = node.getChildren();
-            children.forEach(this::compile);
-        } else if (node.type == Token.PROCEDURE) {
-            List<Node> children = node.getChildren();
-            String name = children.get(0).value;
+        switch (node.type) {
 
-            Procedure procedure = new Procedure(node, name, children.get(1).getChildren().stream().map(node1 -> node1.value).toList());
-            procedures.add(procedure);
-            addVariables(children.get(1));
-
-            directives(procedure, children.subList(2, children.size()));
-            int insertIndex = IntStream.range(0, program.size())
-                    .filter(index -> program.get(index).equals(".code"))
-                    .findAny()
-                    .getAsInt() + 1;
-
-            if (name.equals("main")) {
-                program.addAll(procedure.directives);
-                program.add("\n");
-            } else {
-                program.addAll(insertIndex, procedure.directives);
-                program.add(insertIndex + procedure.directives.size(), "\n");
+            case PROGRAM -> {
+                List<Node> children = node.getChildren();
+                children.forEach(this::compile);
             }
 
-        } else if (node.type == Token.IF) {
-            Node compare = node.getChild();
-            if (compare.type == Token.AND || compare.type == Token.OR) {
+            case PROCEDURE -> {
+                List<Node> children = node.getChildren();
+                String name = children.get(0).value;
 
-            } else if (JUMP_COMMANDS.containsKey(compare.type)) {
-                Command jump = JUMP_COMMANDS.get(compare.type);
+                Procedure procedure = new Procedure(node, name, children.get(1).getChildren().stream().map(node1 -> node1.value).toList());
+                procedures.add(procedure);
+                addVariables(children.get(1));
 
+                directives(procedure, children.subList(2, children.size()));
+                int insertIndex = IntStream.range(0, program.size())
+                        .filter(index -> program.get(index).equals(".code"))
+                        .findAny()
+                        .getAsInt() + 1;
+
+                if (name.equals("main")) {
+                    program.addAll(procedure.directives);
+                    program.add("\n");
+                } else {
+                    program.addAll(insertIndex, procedure.directives);
+                    program.add(insertIndex + procedure.directives.size(), "\n");
+                }
             }
-        } else if (node.type == Token.ELSE_IF) {
-
-        } else if (node.type == Token.ELSE) {
-
-        } else if (node.type == Token.DECLARATION) {
-            declaration(node);
-        } else if (node.type == Token.CALCULATION) {
-
-        } else if (node.type == Token.INITIALIZATION) {
-            initialization(node);
-        } else if (node.type == Token.RETURN) {
-
-        } else if (node.type == Token.FUNCTION) {
-            if (!node.value.equals("printf")) {
-                throw new RuntimeException("Unknown function " + node.value);
-            }
-            program.add(printf(node));
         }
     }
 
@@ -203,7 +182,6 @@ public class Compiler {
 
             insertLine += 3;
 
-            int jumpCount = jumpCount(procedure.node);
             Map<String, Register> registers = new HashMap<>();
 
             for (int i = 0; i < procedure.params.size(); i++) {
@@ -231,31 +209,26 @@ public class Compiler {
 
                 } else if (node.type == Token.ELSE) {
                     List<String> internalCommands = new ArrayList<>();
+
+                    internalCommands.add(String.format("@%s%d:", procedure.name, jumpCount(procedure.node)));
+
                     for (Node child : children) {
-                        if (child.type == Token.CALCULATION) {
-                            internalCommands.addAll(calculation(child, registers));
-                        } else if (child.type == Token.INITIALIZATION) {
-                            internalCommands.addAll(initialization(node));
-                        } else if (child.type == Token.DECLARATION) {
-                            declaration(node);
-                        } else if (child.type == Token.RETURN) {
-                            Node value = child.getChild();
-                            if (value.type != Token.ID) {
-                                internalCommands.add("mov eax, " + value.value);
+                        switch (child.type) {
+                            case CALCULATION -> internalCommands.addAll(calculation(child, registers));
+                            case INITIALIZATION -> internalCommands.addAll(initialization(node));
+                            case DECLARATION -> declaration(node);
+                            case RETURN -> {
+                                Node value = child.getChild();
+                                if (value.type != Token.ID) {
+                                    internalCommands.add("mov eax, " + value.value);
+                                }
+                                internalCommands.add("pop ebp");
+                                internalCommands.add("ret");
                             }
-                            internalCommands.add("pop ebp");
-                            internalCommands.add("ret");
                         }
                     }
 
-                    commands.addAll(insertLine, internalCommands);
-                    int finalCurrentJump = currentJump;
-                    commands.addAll(
-                            IntStream.range(0, commands.size())
-                                    .filter(index -> commands.get(index).contains("@" + procedure.name + (finalCurrentJump - 1)))
-                                    .findAny()
-                                    .getAsInt() + 1,
-                            internalCommands);
+                    commands.addAll(insertLine + 1, internalCommands);
                 }
             }
 
@@ -267,61 +240,64 @@ public class Compiler {
             insertLine = 1;
 
             for (Node node : directives) {
-                if (node.type == Token.DECLARATION) {
-                    declaration(node);
-                } else if (node.type == Token.INITIALIZATION) {
-                    List<String> initCommands = initialization(node);
-                    commands.addAll(initCommands);
-                    insertLine += initCommands.size();
+                switch (node.type) {
+                    case DECLARATION -> declaration(node);
+                    case INITIALIZATION -> {
+                        List<String> initCommands = initialization(node);
+                        commands.addAll(initCommands);
+                        insertLine += initCommands.size();
+                    }
+                    case ELSE -> {
+                        int currentJump = 0;
+                        List<Node> children = node.getChildren();
 
-                } else if (node.type == Token.ELSE) {
-                    int currentJump = 0;
-                    List<Node> children = node.getChildren();
+                        for (Node child : children) {
+                            List<Node> nodes = child.getChildren();
 
+                            if (child.type == Token.INITIALIZATION) {
+                                List<String> initCommands = initialization(child);
+                                commands.addAll(initCommands);
+                                insertLine += initCommands.size();
 
-                    for (Node child : children) {
-                        List<Node> nodes = child.getChildren();
+                            } else if (child.type == Token.FUNCTION && child.value.equals("printf")) {
+                                commands.add(printf(child));
 
-                        if (child.type == Token.INITIALIZATION) {
-                            List<String> initCommands = initialization(child);
-                            commands.addAll(initCommands);
-                            insertLine += initCommands.size();
+                            } else if (child.type == Token.IF || child.type == Token.ELSE_IF) {
+                                Node conditionNode = nodes.get(0);
 
-                        } else if (child.type == Token.FUNCTION && child.value.equals("printf")) {
-                            commands.add(printf(child));
+                                currentJump = multiCondition(procedure,
+                                        conditionNode,
+                                        nodes.subList(1, child.getChildren().size()),
+                                        new HashMap<>(),
+                                        commands,
+                                        currentJump,
+                                        insertLine);
 
-                        } else if (child.type == Token.IF || child.type == Token.ELSE_IF) {
-                            Node conditionNode = nodes.get(0);
+                                insertLine += 2;
 
-                            currentJump = multiCondition(procedure,
-                                    conditionNode,
-                                    nodes.subList(1, child.getChildren().size()),
-                                    new HashMap<>(),
-                                    commands,
-                                    currentJump,
-                                    insertLine);
+                            } else if (child.type == Token.ELSE) {
+                                List<String> internalCommands = new ArrayList<>();
 
-                            insertLine += 2;
-                        } else if (child.type == Token.ELSE) {
-                            List<String> internalCommands = new ArrayList<>();
-                            for (Node node1 : nodes) {
-                                if (node1.type == Token.CALCULATION) {
-                                    internalCommands.addAll(calculation(child, new HashMap<>()));
-                                } else if (node1.type == Token.INITIALIZATION) {
-                                    internalCommands.addAll(initialization(node1));
-                                } else if (node1.type == Token.DECLARATION) {
-                                    declaration(node1);
-                                } else if (node1.type == Token.RETURN) {
-                                    Node value = node1.getChild();
-                                    if (value.type != Token.ID) {
-                                        internalCommands.add("mov eax, " + value.value);
+                                for (Node node1 : nodes) {
+                                    switch (node1.type) {
+                                        case CALCULATION -> internalCommands.addAll(calculation(child, new HashMap<>()));
+                                        case INITIALIZATION -> internalCommands.addAll(initialization(node1));
+                                        case DECLARATION -> declaration(node1);
+                                        case RETURN -> {
+                                            Node value = node1.getChild();
+                                            if (value.type != Token.ID) {
+                                                internalCommands.add("mov eax, " + value.value);
+                                            }
+                                        }
+                                        case FUNCTION -> {
+                                            if (node1.value.equals("printf")) internalCommands.add(printf(node1));
+                                        }
                                     }
-                                } else if (node1.type == Token.FUNCTION && node1.value.equals("printf")) {
-                                    internalCommands.add(printf(node1));
                                 }
-                            }
 
-                            commands.addAll(insertLine + 1, internalCommands);
+                                internalCommands.add("jmp @end");
+                                commands.addAll(insertLine + 1, internalCommands);
+                            }
                         }
                     }
                 }
@@ -332,7 +308,6 @@ public class Compiler {
             commands.add("end main");
 
             procedure.addDirectives(commands);
-            insertLine = 0;
         }
     }
 
@@ -347,6 +322,7 @@ public class Compiler {
 
         if (conditionNode.type == Token.AND || conditionNode.type == Token.OR) {
             List<Node> conditions = conditionNode.getChildren();
+
             List<String> trueDirectives = new ArrayList<>();
 
             for (Node condChild : conditions) {
@@ -357,16 +333,8 @@ public class Compiler {
                     registers.put(operators.get(1).value, Register.EAX);
                 }
 
-                Condition condition = condition(condChild, jump, nodes, registers);
-
-                internalCommands.add(String.format("cmp %s, %s",
-                        registers.containsKey(condition.operand1)
-                                ? registers.get(condition.operand1)
-                                : condition.operand1,
-                        registers.containsKey(condition.operand2)
-                                ? registers.get(condition.operand2)
-                                : condition.operand2
-                ));
+                Condition condition = condition(condChild, nodes, registers);
+                comparison(registers, internalCommands, condition);
 
                 internalCommands.add(String.format("%s %s", condition.command, jump));
                 internalCommands.add(jump + ":");
@@ -376,11 +344,12 @@ public class Compiler {
                 }
             }
 
+            internalCommands.add(internalCommands.size() - 1, "JMP @to_lower_case" + (currentJump == 2 ? 4 : 5));
             internalCommands.addAll(trueDirectives);
 
         } else {
             String jump = "@" + procedure.name + currentJump;
-            Condition condition = condition(conditionNode, jump, nodes, registers);
+            Condition condition = condition(conditionNode, nodes, registers);
 
             List<Node> operators = conditionNode.getChildren();
 
@@ -390,32 +359,46 @@ public class Compiler {
                         operators.get(1).value));
             }
 
-            internalCommands.add(String.format("cmp %s, %s",
-                    registers.containsKey(condition.operand1)
-                            ? registers.get(condition.operand1)
-                            : condition.operand1,
-                    registers.containsKey(condition.operand2)
-                            ? registers.get(condition.operand2)
-                            : condition.operand2
-            ));
+            comparison(registers, internalCommands, condition);
 
             internalCommands.add(String.format("%s @%s",
                     JUMP_COMMANDS.get(conditionNode.type),
                     procedure.name + currentJump++));
-
             internalCommands.add(jump + ":");
             internalCommands.addAll(condition.directives);
         }
 
         if (procedure.name.equals("main")) {
-            internalCommands.add("jump @end");
+            internalCommands.add("jmp @end");
         }
         commands.addAll(currentLine, internalCommands);
 
         return currentJump;
     }
 
-    private Condition condition(Node conditionNode, String jump, List<Node> nodes, Map<String, Register> registers) {
+    private void comparison(Map<String, Register> registers, List<String> internalCommands, Condition condition) {
+        String operand1 = condition.operand1;
+        String operand2 = condition.operand2;
+
+        internalCommands.add(String.format("cmp %s, %s",
+                registers.containsKey(operand1)
+                        ? registers.get(operand1)
+                        : operand1,
+                registers.containsKey(operand2)
+                        ? registers.get(operand2)
+                        : (Lexer.isHex(operand2)
+                            ? operand2.substring(2).concat("h")
+                            : (Lexer.isOct(operand2)
+                                ? operand2.substring(1).concat("o")
+                                : operand2))
+        ));
+
+        if (internalCommands.get(internalCommands.size() - 1).equals("cmp EAX, 0")) {
+            internalCommands.add(internalCommands.size() - 1, "@to_lower_case4:");
+        }
+    }
+
+    private Condition condition(Node conditionNode, List<Node> nodes, Map<String, Register> registers) {
         List<Node> operands = conditionNode.getChildren();
 
         if (operands.stream().allMatch(oper -> oper.type == Token.ID)) {
@@ -428,17 +411,19 @@ public class Compiler {
 
         List<String> directives = new ArrayList<>();
         for (Node node : nodes) {
-            if (node.type == Token.CALCULATION) {
-                directives.addAll(calculation(node, registers));
-            } else if (node.type == Token.INITIALIZATION) {
-                directives.addAll(initialization(node));
-            } else if (node.type == Token.DECLARATION) {
-                declaration(node);
-            } else if (node.type == Token.RETURN) {
-                directives.add("pop ebp");
-                directives.add("ret");
-            } else if (node.type == Token.FUNCTION && node.value.equals("printf")) {
-                directives.add(printf(node));
+            switch (node.type) {
+                case CALCULATION -> directives.addAll(calculation(node, registers));
+                case INITIALIZATION -> directives.addAll(initialization(node));
+                case DECLARATION -> declaration(node);
+                case RETURN -> {
+                    directives.add("pop ebp");
+                    directives.add("ret");
+                }
+                case FUNCTION -> {
+                    if (node.value.equals("printf")) {
+                        directives.add(printf(node));
+                    }
+                }
             }
         }
 
@@ -576,21 +561,23 @@ public class Compiler {
                 throw new RuntimeException("Illegal arguments count for function printf");
             }
 
-            String paramsText = constantMessage.name + ", " +
-                    params.subList(1, params.size())
-                        .stream()
-                        .map(param -> {
-                            if (param.type == null) {
-                                return param.value;
-                            } else {
-                                return switch (param.type) {
-                                    case STRING -> "\"" + param.value + "\"";
-                                    case CHARACTER -> "'" + param.value + "'";
-                                    default -> param.value;
-                                };
-                            }
-                        })
-                        .collect(Collectors.joining(", "));
+            String paramsText = params.size() - 1 <= 0
+                    ? constantMessage.name
+                    : constantMessage.name + ", " +
+                        params.subList(1, params.size())
+                            .stream()
+                            .map(param -> {
+                                if (param.type == null) {
+                                    return param.value;
+                                } else {
+                                    return switch (param.type) {
+                                        case STRING -> "\"" + param.value + "\"";
+                                        case CHARACTER -> "'" + param.value + "'";
+                                        default -> param.value;
+                                    };
+                                }
+                            })
+                            .collect(Collectors.joining(", "));
 
             return String.format("invoke crt_printf, ADDR %s", paramsText);
 
@@ -604,13 +591,13 @@ public class Compiler {
            add(".586");
            add(".model flat, c");
            add("option casemap:none");
-           add("include ..\\masm32\\include\\user32.inc");
-           add("include ..\\masm32\\include\\kernel32.inc");
-           add("include ..\\masm32\\include\\windows.inc");
-           add("include ..\\masm32\\include\\msvcrt.inc\n");
-           add("includelib ..\\masm32\\lib\\kernel32.lib");
-           add("includelib..\\masm32\\lib\\user32.lib");
-           add("includelib ..\\masm32\\lib\\msvcrt.lib\n");
+           add("include masm32\\include\\user32.inc");
+           add("include masm32\\include\\kernel32.inc");
+           add("include masm32\\include\\windows.inc");
+           add("include masm32\\include\\msvcrt.inc\n");
+           add("includelib masm32\\lib\\kernel32.lib");
+           add("includelib masm32\\lib\\user32.lib");
+           add("includelib masm32\\lib\\msvcrt.lib\n");
            add(".const");
            add(".data");
            add(".code");
@@ -659,11 +646,8 @@ public class Compiler {
         return String.join("\n", program);
     }
 
-    public Node getRoot() {
-        return root;
-    }
-
-    private Data getDataType(Node node) {
+    //TODO: знадобиться при подальшому вдосконаленні компілятора
+/*    private Data getDataType(Node node) {
         long value;
         if (node.type == Token.DECIMAL) {
             value = Long.parseLong(node.value);
@@ -682,7 +666,7 @@ public class Compiler {
         }
 
         throw new RuntimeException(String.format("Value %d is too large", value));
-    }
+    }*/
 
     private Variable getVariable(String name) {
         Optional<Variable> optVar = variables.stream().filter(var -> var.name.equals(name)).findAny();
@@ -707,16 +691,15 @@ public class Compiler {
     }
 
     private int jumpCount(Node node) {
-        if (Parser.COMPARE.contains(node.type) || node.type == Token.ELSE) {
+        if (JUMP_COMMANDS.containsKey(node.type) || node.type == Token.ELSE) {
             return 1;
         }
 
-        int count = 0;
-
+        int jump = 0;
         for (Node child : node.getChildren()) {
-            count += jumpCount(child);
+            jump += jumpCount(child);
         }
 
-        return count;
+        return jump;
     }
 }
