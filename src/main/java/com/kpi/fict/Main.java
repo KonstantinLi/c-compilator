@@ -26,7 +26,7 @@ public class Main {
                 throw new RuntimeException("Character must be given");
             }
 
-            character = args[0].toCharArray()[0];
+            character = args[1].toCharArray()[0];
         }
 
         String program;
