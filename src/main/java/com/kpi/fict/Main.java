@@ -40,7 +40,7 @@ public class Main {
         parser.parse("Upper-lower case");
 
         Node root = parser.getRoot();
-        parser.setCharacter(root, 'q');
+        parser.setCharacter(root, character);
 
         Compiler compiler = new Compiler(root);
         compiler.compile();
